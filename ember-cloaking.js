@@ -1,447 +1,447 @@
-(function () {
+(function(Ember) {
 
-  /**
-    Display a list of cloaked items
+    /**
+     Display a list of cloaked items
 
-    @class CloakedCollectionView
-    @extends Ember.CollectionView
-    @namespace Ember
-  **/
-  Ember.CloakedCollectionView = Ember.CollectionView.extend({
-    cloakView: Ember.computed.alias('itemViewClass'),
-    topVisible: null,
-    bottomVisible: null,
-    offsetFixedTopElement: null,
-    offsetFixedBottomElement: null,
-    loadingHTML: 'Loading...',
-    scrollDebounce: 10,
-
-    init: function() {
-      var cloakView = this.get('cloakView'),
-          idProperty = this.get('idProperty'),
-          uncloakDefault = !!this.get('uncloakDefault');
-
-      // Set the slack ratio differently to allow for more or less slack in preloading
-      var slackRatio = parseFloat(this.get('slackRatio'));
-      if (!slackRatio) { this.set('slackRatio', 1.0); }
-
-      this.set('itemViewClass', Ember.CloakedView.extend({
-        classNames: [cloakView + '-cloak'],
-        cloaks: cloakView,
-        preservesContext: this.get('preservesContext') === 'true',
-        cloaksController: this.get('itemController'),
-        defaultHeight: this.get('defaultHeight'),
+     @class CloakedCollectionView
+     @extends Ember.CollectionView
+     @namespace Ember
+     **/
+    Ember.CloakedCollectionView = Ember.CollectionView.extend({
+        topVisible: null,
+        bottomVisible: null,
+        offsetFixedElement: null,
 
         init: function() {
-          this._super();
+            var cloakView = this.get('cloakView'),
+                idProperty = this.get('idProperty'),
+                labelProperty = this.get('labelProperty'),
+                idPrefix = this.get('idPrefix') || cloakView + '-cloak-',
+                uncloakDefault = !!this.get('uncloakDefault'),
+                $cloakLoadingElement = $($.parseHTML(this.get('loadingHTML')));
 
-          if (idProperty) {
-            this.set('elementId', cloakView + '-cloak-' + this.get('content.' + idProperty));
-          }
-          if (uncloakDefault) {
-            this.uncloak();
-          } else {
-            this.cloak();
-          }
-        }
-      }));
+            // Set the slack ratio differently to allow for more or less slack in preloading
+            var slackRatio = parseFloat(this.get('slackRatio'));
+            if (!slackRatio) { this.set('slackRatio', 1.0); }
 
-      this._super();
-      Ember.run.next(this, 'scrolled');
-    },
+            this.set('itemViewClass', Ember.CloakedView.extend({
+                classNames: [cloakView + '-cloak'],
+                cloaks: cloakView,
+                cloakLoadingElementReference: $cloakLoadingElement,
+                preservesContext: this.get('preservesContext') === "true",
+                cloaksController: this.get('itemController'),
+                defaultHeight: this.get('defaultHeight'),
+                container: this.get('container'),
 
+                init: function() {
+                    this._super();
 
-    /**
-      If the topmost visible view changed, we will notify the controller if it has an appropriate hook.
+                    if (idProperty) {
+                        this.set('elementId', idPrefix + this.get('content.' + idProperty));
+                    }
+                    if (labelProperty) {
+                        this.set('elementLabel', this.get('content.' + labelProperty));
+                    }
+                    if (uncloakDefault) {
+                        this.uncloak();
+                    } else {
+                        this.cloak();
+                    }
+                }
+            }));
 
-      @method _topVisibleChanged
-      @observes topVisible
-    **/
-    _topVisibleChanged: function() {
-      var controller = this.get('controller');
-      if (controller.topVisibleChanged) { controller.topVisibleChanged(this.get('topVisible')); }
-    }.observes('topVisible'),
+            this._super();
+        },
 
-    /**
-      If the bottommost visible view changed, we will notify the controller if it has an appropriate hook.
+        /**
+         If the topmost visible view changed, we will notify the controller if it has an appropriate hook.
 
-      @method _bottomVisible
-      @observes bottomVisible
-    **/
-    _bottomVisible: function() {
-      var controller = this.get('controller');
-      if (controller.bottomVisibleChanged) { controller.bottomVisibleChanged(this.get('bottomVisible')); }
-    }.observes('bottomVisible'),
+         @method _topVisibleChanged
+         @observes topVisible
+         **/
+        _topVisibleChanged: function() {
+            var controller = this.get('controller');
+            if (controller.topVisibleChanged) { controller.topVisibleChanged(this.get('topVisible')); }
+        }.observes('topVisible'),
 
-    /**
-      Binary search for finding the topmost view on screen.
+        /**
+         If the bottommost visible view changed, we will notify the controller if it has an appropriate hook.
 
-      @method findTopView
-      @param {Array} childViews the childViews to search through
-      @param {Number} windowTop The top of the viewport to search against
-      @param {Number} min The minimum index to search through of the child views
-      @param {Number} max The max index to search through of the child views
-      @returns {Number} the index into childViews of the topmost view
-    **/
-    findTopView: function(childViews, viewportTop, min, max) {
-      if (max < min) { return min; }
+         @method _bottomVisible
+         @observes bottomVisible
+         **/
+        _bottomVisible: function() {
+            var controller = this.get('controller');
+            if (controller.bottomVisibleChanged) { controller.bottomVisibleChanged(this.get('bottomVisible')); }
+        }.observes('bottomVisible'),
 
-      var wrapperTop = this.get('wrapperTop')>>0;
+        /**
+         Binary search for finding the topmost view on screen.
 
-      while(max>min){
-        var mid = Math.floor((min + max) / 2),
+         @method findTopView
+         @param {Array} childViews the childViews to search through
+         @param {Number} viewportTop The top of the viewport to search against
+         @param {Number} min The minimum index to search through of the child views
+         @param {Number} max The max index to search through of the child views
+         @returns {Number} the index into childViews of the topmost view
+         **/
+        findTopView: function(childViews, viewportTop, min, max) {
+            if (max < min) { return min; }
+
+            var mid = Math.floor((min + max) / 2),
             // in case of not full-window scrolling
-            $view = childViews[mid].$(),
-            viewBottom = $view.position().top + wrapperTop + $view.height();
+                scrollOffset = this.get('wrapperTop') >> 0,
+                $view = childViews[mid].$(),
+                viewBottom = $view.position().top + scrollOffset + $view.height();
 
-        if (viewBottom > viewportTop) {
-          max = mid-1;
-        } else {
-          min = mid+1;
-        }
-      }
-
-      return min;
-    },
-
-
-    /**
-      Determine what views are onscreen and cloak/uncloak them as necessary.
-
-      @method scrolled
-    **/
-    scrolled: function() {
-      if (!this.get('scrollingEnabled')) { return; }
-
-      var childViews = this.get('childViews');
-      if ((!childViews) || (childViews.length === 0)) { return; }
-
-      var self = this,
-          toUncloak = [],
-          onscreen = [],
-          onscreenCloaks = [],
-          // calculating viewport edges
-          $w = Ember.$(window),
-          windowHeight = this.get('wrapperHeight') || ( window.innerHeight ? window.innerHeight : $w.height() ),
-          windowTop = this.get('wrapperTop') || $w.scrollTop(),
-          slack = Math.round(windowHeight * this.get('slackRatio')),
-          viewportTop = windowTop - slack,
-          windowBottom = windowTop + windowHeight,
-          viewportBottom = windowBottom + slack,
-          topView = this.findTopView(childViews, viewportTop, 0, childViews.length-1),
-          bodyHeight = this.get('wrapperHeight') ? this.$().height() : $(document).height(),
-          bottomView = topView,
-          offsetFixedTopElement = this.get('offsetFixedTopElement'),
-          offsetFixedBottomElement = this.get('offsetFixedBottomElement');
-
-      if (windowBottom > bodyHeight) { windowBottom = bodyHeight; }
-      if (viewportBottom > bodyHeight) { viewportBottom = bodyHeight; }
-
-      if (offsetFixedTopElement) {
-        windowTop += (offsetFixedTopElement.outerHeight(true) || 0);
-      }
-
-      if (offsetFixedBottomElement) {
-        windowBottom -= (offsetFixedBottomElement.outerHeight(true) || 0);
-      }
-
-      // Find the bottom view and what's onscreen
-      while (bottomView < childViews.length) {
-        var view = childViews[bottomView],
-          $view = view.$(),
-          // in case of not full-window scrolling
-          scrollOffset = this.get('wrapperTop') || 0,
-          viewTop = $view.offset().top + scrollOffset,
-          viewBottom = viewTop + $view.height();
-
-        if (viewTop > viewportBottom) { break; }
-        toUncloak.push(view);
-
-        if (viewBottom > windowTop && viewTop <= windowBottom) {
-          onscreen.push(view.get('content'));
-          onscreenCloaks.push(view);
-        }
-
-        bottomView++;
-      }
-      if (bottomView >= childViews.length) { bottomView = childViews.length - 1; }
-
-      // If our controller has a `sawObjects` method, pass the on screen objects to it.
-      var controller = this.get('controller');
-      if (onscreen.length) {
-        this.setProperties({topVisible: onscreen[0], bottomVisible: onscreen[onscreen.length-1]});
-        if (controller && controller.sawObjects) {
-          Em.run.schedule('afterRender', function() {
-            controller.sawObjects(onscreen);
-          });
-        }
-      } else {
-        this.setProperties({topVisible: null, bottomVisible: null});
-      }
-
-      var toCloak = childViews.slice(0, topView).concat(childViews.slice(bottomView+1));
-
-      this._uncloak = toUncloak;
-      if(this._nextUncloak){
-        Em.run.cancel(this._nextUncloak);
-        this._nextUncloak = null;
-      }
-
-      Em.run.schedule('afterRender', this, function() {
-        onscreenCloaks.forEach(function (v) {
-          if(v && v.uncloak) {
-            v.uncloak();
-          }
-        });
-        toCloak.forEach(function (v) { v.cloak(); });
-        if (self._nextUncloak) { Em.run.cancel(self._nextUncloak); }
-        self._nextUncloak = Em.run.later(self, self.uncloakQueue,50);
-      });
-
-      for (var j=bottomView; j<childViews.length; j++) {
-        var checkView = childViews[j];
-        if (!checkView._containedView) {
-          if (!checkView.get('loading')) {
-            checkView.$().html(this.get('loadingHTML'));
-          }
-          return;
-        }
-      }
-    },
-
-    uncloakQueue: function(){
-      var maxPerRun = 3, delay = 50, processed = 0, self = this;
-
-      if(this._uncloak){
-        while(processed < maxPerRun && this._uncloak.length>0){
-          var view = this._uncloak.shift();
-          if(view && view.uncloak && !view._containedView){
-            Em.run.schedule('afterRender', view, view.uncloak);
-            processed++;
-          }
-        }
-        if(this._uncloak.length === 0){
-          this._uncloak = null;
-        } else {
-          Em.run.schedule('afterRender', self, function(){
-            if(self._nextUncloak){
-              Em.run.cancel(self._nextUncloak);
+            if (viewBottom > viewportTop) {
+                return this.findTopView(childViews, viewportTop, min, mid - 1);
+            } else {
+                return this.findTopView(childViews, viewportTop, mid + 1, max);
             }
-            self._nextUncloak = Em.run.next(self, function(){
-              if(self._nextUncloak){
-                Em.run.cancel(self._nextUncloak);
-              }
-              self._nextUncloak = Em.run.later(self,self.uncloakQueue,delay);
+        },
+
+        /**
+         Determine what views are onscreen and cloak/uncloak them as necessary.
+
+         @method scrolled
+         **/
+        scrolled: function() {
+            if (!this.get('scrollingEnabled')) { return; }
+            var childViews = this.get('childViews');
+            if ((!childViews) || (childViews.length === 0)) { return; }
+
+            var toUncloak = [],
+                onscreen = [],
+            // calculating viewport edges
+                $w = $(window),
+                windowHeight = this.get('wrapperHeight') || ( window.innerHeight ? window.innerHeight : $w.height() ),
+                windowTop = this.get('wrapperTop') || $w.scrollTop(),
+                slack = Math.round(windowHeight * this.get('slackRatio')),
+                viewportTop = windowTop - slack,
+                windowBottom = windowTop + windowHeight,
+                viewportBottom = windowBottom + slack,
+                topView = this.findTopView(childViews, viewportTop, 0, childViews.length - 1),
+                bodyHeight = this.get('wrapperHeight') ? this.$().height() : $('body').height(),
+                bottomView = topView,
+                offsetFixedElement = this.get('offsetFixedElement');
+
+            if (windowBottom > bodyHeight) { windowBottom = bodyHeight; }
+            if (viewportBottom > bodyHeight) { viewportBottom = bodyHeight; }
+
+            if (offsetFixedElement) {
+                windowTop += (offsetFixedElement.outerHeight(true) || 0);
+            }
+            // Find the bottom view and what's onscreen
+            while (bottomView < childViews.length) {
+                var view = childViews[bottomView],
+                    $view = view.$(),
+                // in case of not full-window scrolling
+                    scrollOffset = this.get('wrapperTop') >> 0,
+                    viewTop = $view.position().top + scrollOffset,
+                    viewBottom = viewTop + $view.height();
+
+                if (childViews.length < 8) {
+                    // set pageUpElement to first in list since not enough elements in list for paging
+                    this.setProperties({
+                        'controller.pageUpElementIndex': 0,
+                        'controller.pageDownElementIndex': childViews.length / 2 - 1
+                    });
+                } else {
+                    this.updatePageElements($view);
+                }
+
+                if (viewTop > viewportBottom) { break; }
+                toUncloak.push(view);
+
+                if (viewBottom > windowTop && viewTop <= windowBottom) {
+                    onscreen.push(view.get('content'));
+                }
+
+                bottomView++;
+            }
+            if (bottomView >= childViews.length) { bottomView = childViews.length - 1; }
+
+            // If our controller has a `sawObjects` method, pass the on screen objects to it.
+            var controller = this.get('controller');
+            if (onscreen.length) {
+                this.setProperties({topVisible: onscreen[0], bottomVisible: onscreen[onscreen.length - 1]});
+                if (controller && controller.sawObjects) {
+                    Ember.run.schedule('afterRender', function() {
+                        controller.sawObjects(onscreen);
+                    });
+                }
+            } else {
+                this.setProperties({topVisible: null, bottomVisible: null});
+            }
+
+            var toCloak = childViews.slice(0, topView).concat(childViews.slice(bottomView + 1));
+            Ember.run.schedule('afterRender', function() {
+                toUncloak.forEach(function(v) { v.uncloak(); });
+                toCloak.forEach(function(v) { v.cloak(); });
+                toUncloak = null;
+                toCloak = null;
             });
-          });
-        }
-      }
-    },
 
-    scrollTriggered: function() {
-      Em.run.scheduleOnce('afterRender', this, 'scrolled');
-    },
+        },
 
-    _startEvents: function() {
-      if (this.get('offsetFixed')) {
-        Em.warn("Cloaked-collection's `offsetFixed` is deprecated. Use `offsetFixedTop` instead.");
-      }
+        updatePageElements: function(view) {
+            var $w = $(window),
+                windowHeight = this.get('wrapperHeight') || ( window.innerHeight ? window.innerHeight : $w.height() ),
+                windowTop = this.get('wrapperTop') || $w.scrollTop(),
+                $view = view,
+                scrollOffset = this.get('wrapperTop') >> 0,
+                viewTop = $view.position().top + scrollOffset,
+                viewBottom = viewTop + $view.height(),
+                windowBottom = windowTop + windowHeight;
 
-      var self = this,
-          offsetFixedTop = this.get('offsetFixedTop') || this.get('offsetFixed'),
-          offsetFixedBottom = this.get('offsetFixedBottom'),
-          scrollDebounce = this.get('scrollDebounce'),
-          onScrollMethod = function() {
-            Ember.run.debounce(self, 'scrollTriggered', scrollDebounce);
-          };
+            if (viewBottom > windowBottom && viewTop < windowBottom) {
+                //if the view is at bottom of view port
+                var currentpageDownElementIndex = parseInt($view[0].id.split('-')[2]);
+                this.set('controller.pageDownElementIndex', null);
+                this.set('controller.pageDownElementIndex', currentpageDownElementIndex);
+                if (currentpageDownElementIndex > 7) {
+                    this.set('controller.pageUpElementIndex', currentpageDownElementIndex - 6);
+                } else {
+                    this.set('controller.pageUpElementIndex', 0);
+                }
+            }
+        },
 
-      if (offsetFixedTop) {
-        this.set('offsetFixedTopElement', Ember.$(offsetFixedTop));
-      }
+        scrollTriggered: function() {
+            Ember.run.scheduleOnce('afterRender', this, 'scrolled');
+        },
 
-      if (offsetFixedBottom) {
-        this.set('offsetFixedBottomElement', Ember.$(offsetFixedBottom));
-      }
+        _startEvents: function() {
+            var self = this,
+                offsetFixed = this.get('offsetFixed'),
+                onScrollMethod = function() {
+                    Ember.run.debounce(self, 'scrollTriggered', 20);
+                };
 
-      Ember.$(document).bind('touchmove.ember-cloak', onScrollMethod);
-      Ember.$(window).bind('scroll.ember-cloak', onScrollMethod);
-      this.addObserver('wrapperTop', self, onScrollMethod);
-      this.addObserver('wrapperHeight', self, onScrollMethod);
-      this.addObserver('content.@each', self, onScrollMethod);
-      this.scrollTriggered();
+            if (offsetFixed) {
+                this.set('offsetFixedElement', $(offsetFixed));
+            }
 
-      this.set('scrollingEnabled', true);
-    }.on('didInsertElement'),
+            $(document).bind('touchmove.ember-cloak', onScrollMethod);
+            $(window).bind('scroll.ember-cloak', onScrollMethod);
+            this.addObserver('wrapperTop', self, onScrollMethod);
+            this.addObserver('wrapperHeight', self, onScrollMethod);
+            this.addObserver('content.@each', self, onScrollMethod);
+            this.scrollTriggered();
 
-    cleanUp: function() {
-      Ember.$(document).unbind('touchmove.ember-cloak');
-      Ember.$(window).unbind('scroll.ember-cloak');
-      this.set('scrollingEnabled', false);
-    },
+            this.set('scrollingEnabled', true);
+        }.on('didInsertElement'),
 
-    _endEvents: function() {
-      this.cleanUp();
-    }.on('willDestroyElement')
-  });
+        cleanUp: function() {
+            $(document).unbind('touchmove.ember-cloak');
+            $(window).unbind('scroll.ember-cloak');
+            this.set('scrollingEnabled', false);
+        },
 
-
-  /**
-    A cloaked view is one that removes its content when scrolled off the screen
-
-    @class CloakedView
-    @extends Ember.View
-    @namespace Ember
-  **/
-  Ember.CloakedView = Ember.View.extend({
-    attributeBindings: ['style'],
-    _containedView: null,
-    _scheduled: null,
-
-    init: function() {
-      this._super();
-      this._scheduled = false;
-      this._childViews = [];
-    },
-
-    setContainedView: function(cv) {
-      if (this._childViews[0]) {
-        this._childViews[0].destroy();
-        this._childViews[0] = cv;
-      }
-
-      if (cv) {
-        cv.set('_parentView', this);
-        cv.set('templateData', this.get('templateData'));
-        this._childViews[0] = cv;
-      } else {
-        this._childViews.clear();
-      }
-
-      if (this._scheduled) return;
-      this._scheduled = true;
-      this.set('_containedView', cv);
-      Ember.run.schedule('render', this, this.updateChildView);
-    },
-
-    render: function (buffer) {
-      var el = buffer.element();
-      this._childViewsMorph = buffer.dom.createMorph(el, null, null, el);
-    },
-
-    updateChildView: function () {
-      this._scheduled = false;
-      if (!this._elementCreated || this.isDestroying || this.isDestroyed) { return; }
-
-      var childView = this._containedView;
-      if (childView && !childView._elementCreated) {
-        this._renderer.renderTree(childView, this, 0);
-      }
-    },
+        _endEvents: function() {
+            this.cleanUp();
+        }.on('willDestroyElement')
+    });
 
     /**
-      Triggers the set up for rendering a view that is cloaked.
+     A cloaked view is one that removes its content when scrolled off the screen
 
-      @method uncloak
-    */
-    uncloak: function() {
-      var state = this._state || this.state;
-      if (state !== 'inDOM' && state !== 'preRender') { return; }
+     @class CloakedView
+     @extends Ember.View
+     @namespace Ember
+     **/
+    Ember.CloakedView = Ember.View.extend({
+        attributeBindings: ['style'],
 
-      if (!this._containedView) {
-        var model = this.get('content'),
-            controller = null,
-            container = this.get('container');
+        /**
+         Triggers the set up for rendering a view that is cloaked.
 
-        // Wire up the itemController if necessary
-        var controllerName = this.get('cloaksController');
-        if (controllerName) {
-          var controllerFullName = 'controller:' + controllerName,
-              factory = container.lookupFactory(controllerFullName),
-              parentController = this.get('controller');
+         @method uncloak
+         */
+        uncloak: function() {
+            if (this.get('isDestroyed') || this.get('isDestroying')) {
+                return;
+            }
+            var containedView = this.get('containedView');
+            if (!containedView) {
+                var model = this.get('content'),
+                    controller = null,
+                    container = this.get('container');
 
-          // let ember generate controller if needed
-          if (factory === undefined) {
-            factory = Ember.generateControllerFactory(container, controllerName, model);
+                // Wire up the itemController if necessary
+                var controllerName = this.get('cloaksController');
+                if (controllerName) {
+                    var controllerFullName = 'controller:' + controllerName,
+                        factory = container.lookupFactory(controllerFullName),
+                        parentController = this.get('controller');
 
-            // inform developer about typo
-            Ember.Logger.warn('ember-cloaking: can\'t lookup controller by name "' + controllerFullName + '".');
-            Ember.Logger.warn('ember-cloaking: using ' + factory.toString() + '.');
-          }
+                    // let ember generate controller if needed
+                    if (factory === undefined) {
+                        factory = Ember.generateControllerFactory(container, controllerName, model);
 
-          controller = factory.create({
-            model: model,
-            parentController: parentController,
-            target: parentController
-          });
+                        // inform developer about typo
+                        Ember.Logger.warn('ember-cloaking: can\'t lookup controller by name "' + controllerFullName + '".');
+                        Ember.Logger.warn('ember-cloaking: using ' + factory.toString() + '.');
+                    }
+
+                    controller = factory.create({
+                        model: model,
+                        parentController: parentController,
+                        target: parentController
+                    });
+                }
+
+                var createArgs = {},
+                    target = controller || model;
+
+                if (this.get('preservesContext')) {
+                    createArgs.content = target;
+                } else {
+                    createArgs.context = target;
+                }
+                if (controller) { createArgs.controller = controller; }
+                this.setProperties({
+                    style: null,
+                    loading: false,
+                    containedView: this.createChildView(this.get('cloaks'), createArgs)
+                });
+
+                this.rerender();
+            }
+        },
+
+        /**
+         Removes the view from the DOM and tears down all observers.
+
+         @method cloak
+         */
+        cloak: function() {
+            var containedView = this.get('containedView'),
+                self = this;
+
+            if (containedView && this.get('state') === 'inDOM') {
+                var style = 'height: ' + containedView.get('fixedHeight') + 'px;';
+                this.set('style', style);
+                this.$().prop('style', style);
+
+                // We need to remove the container after the height of the element has taken
+                // effect.
+                Ember.run.schedule('afterRender', function() {
+                    // A regresssion in IE 10 removes the focus completely from the iframe
+                    // when a view that has the focus is removed from the DOM. If a user
+                    // is navigating with the keyboard, their control will be lost along
+                    // with the focus.
+                    //
+                    // Therefore, before we destroy this view, check whether it contains
+                    // the active element. If it does, move focus to this view's parent.
+                    if (document.activeElement && document.activeElement.setActive) {
+                        var parents = $(document.activeElement).parents();
+                        var $self = self.$();
+                        var $parent;
+
+                        for (var i = 0; i < parents.length; i++) {
+                            $parent = $(parents[i]);
+                            if ($parent.is($self)) {
+                                // Move focus to the parentView
+                                self.get('parentView').$()[0].setActive();
+
+                                break;
+                            }
+                        }
+                    }
+
+                    self.destroyContainedView();
+                    self.renderLoadingHtml(style);
+                });
+            }
+        },
+
+        destroyContainedView: function(innerElementAfterDestroy) {
+            var containedView = this.get('containedView');
+            if (containedView) {
+                var controller = containedView.get('controller');
+                if (controller) {
+                    controller.destroy();
+                }
+                containedView.willDestroyElement();
+                containedView.remove();
+                containedView.destroy();
+                this.set('containedView', null);
+            }
+        },
+
+        renderLoadingHtml: function(style) {
+            var $label,
+                $loadingElement = this.get('cloakLoadingElementReference').clone();
+
+            if (this.get('elementLabel')) {
+                $label = $loadingElement.find('label');
+                if ($label) {
+                    $label.replaceWith(this.get('elementLabel'));
+                }
+            }
+            this.$().empty();
+            $loadingElement.attr('style', style);
+            this.$().append($loadingElement);
+        },
+
+        didInsertElement: function() {
+            if (!this.get('containedView')) {
+                // setting default height
+                // but do not touch if height already defined
+                if (!this.$().height()) {
+                    var defaultHeight = 100;
+                    if (this.get('defaultHeight')) {
+                        defaultHeight = this.get('defaultHeight');
+                    }
+
+                    this.$().css('height', defaultHeight);
+                }
+            }
+
+            Ember.run.schedule('afterRender', this, function() {
+                if (!this.get('containedView')) {
+                    this.renderLoadingHtml();
+                }
+            });
+        },
+
+        willDestroyElement: function() {
+            this.destroyContainedView();
+            this.set('cloakLoadingElementReference', null);
+            this._super();
+        },
+        /**
+         Render the cloaked view if applicable.
+
+         @method render
+         */
+        render: function(buffer) {
+            var containedView = this.get('containedView');
+            if (containedView && containedView.get('state') !== 'inDOM') {
+                containedView.triggerRecursively('willInsertElement');
+                containedView.renderToBuffer(buffer);
+                containedView.transitionTo('inDOM');
+                Ember.run.schedule('afterRender', function() {
+                    containedView.triggerRecursively('didInsertElement');
+                });
+            }
         }
 
-        var createArgs = {},
-            target = controller || model;
+    });
 
-        if (this.get('preservesContext')) {
-          createArgs.content = target;
-        } else {
-          createArgs.context = target;
+    Ember.Handlebars.registerHelper('cloaked-collection', function(options) {
+        var hash = options.hash,
+            types = options.hashTypes;
+
+        for (var prop in hash) {
+            if (types[prop] === 'ID') {
+                hash[prop + 'Binding'] = hash[prop];
+                delete hash[prop];
+            }
         }
-        if (controller) { createArgs.controller = controller; }
-        this.setProperties({
-          style: null,
-          loading: false
-        });
+        return Ember.Handlebars.helpers.view.call(this, Ember.CloakedCollectionView, options);
+    });
 
-        this.setContainedView(this.createChildView(this.get('cloaks'), createArgs));
-      }
-    },
-
-    /**
-      Removes the view from the DOM and tears down all observers.
-
-      @method cloak
-    */
-    cloak: function() {
-      var self = this;
-
-      if (this._containedView && (this._state || this.state) === 'inDOM') {
-        var style = 'height: ' + this.$().height() + 'px;';
-        this.set('style', style);
-        this.$().prop('style', style);
-
-
-        // We need to remove the container after the height of the element has taken
-        // effect.
-        Ember.run.schedule('afterRender', function() {
-          self.setContainedView(null);
-        });
-      }
-    },
-
-    _setHeights: function(){
-      if (!this._containedView) {
-        // setting default height
-        // but do not touch if height already defined
-        if(!this.$().height()){
-          var defaultHeight = 100;
-          if(this.get('defaultHeight')) {
-            defaultHeight = this.get('defaultHeight');
-          }
-
-          this.$().css('height', defaultHeight);
-        }
-      }
-     }.on('didInsertElement')
-  });
-
-  Ember.Handlebars.registerHelper('cloaked-collection', function(options) {
-    var hash = options.hash,
-        types = options.hashTypes;
-
-    for (var prop in hash) {
-      if (types[prop] === 'ID') {
-        hash[prop + 'Binding'] = hash[prop];
-        delete hash[prop];
-      }
-    }
-    return Ember.Handlebars.helpers.view.call(this, Ember.CloakedCollectionView, options);
-  });
-
-})();
+})(Ember);
