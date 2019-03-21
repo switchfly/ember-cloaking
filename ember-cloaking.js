@@ -231,9 +231,34 @@
             this.scrollTriggered();
 
             this.set('scrollingEnabled', true);
+
+            this.setupIframeChangeHandler();
         }.on('didInsertElement'),
 
+        iframeChangeHandlerInterval: null,
+        setupIframeChangeHandler: function() {
+            var self = this;
+            var lastBodyOffsetWidth = 0;
+            this.set('iframeChangeHandlerInterval', setInterval(function(){
+                var currentBodyOffsetWidth = document.body.offsetWidth;
+                var isNewlyVisible = lastBodyOffsetWidth === 0 && currentBodyOffsetWidth !== 0;
+                var isNewlyInvisible = lastBodyOffsetWidth !== 0 && currentBodyOffsetWidth === 0;
+                lastBodyOffsetWidth = currentBodyOffsetWidth;
+                var tripId = App.encoreTripDescriptor.mbr_iframe_data.IFRAME_TRIP_ID;
+                if (isNewlyVisible) {
+                    console.warn(tripId + " iframe now visible. Pretending scrolled ...");
+                    self.scrollTriggered();
+                } else if (isNewlyInvisible) {
+                    console.warn(tripId + " iframe now invisible.");
+                }
+            }, 250));
+        },
+        teardownIframeChangeHandler: function() {
+            clearInterval(this.get('iframeChangeHandlerInterval'));
+        },
+
         cleanUp: function() {
+            this.teardownIframeChangeHandler();
             $(document).unbind('touchmove.ember-cloak');
             $(window).unbind('scroll.ember-cloak');
             this.set('scrollingEnabled', false);
